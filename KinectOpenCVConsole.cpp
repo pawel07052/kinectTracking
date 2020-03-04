@@ -1,30 +1,11 @@
-﻿#include <iostream>
-#include <ctime>
-#include <windows.h>
-#include <strsafe.h>
-#include <vector>
-
-#include <thread> // для работы с потоками 
-#include <chrono> // для работы со временем
-
-//подключение библиотеки для работы с кинектом
-#include "NuiApi.h"
-
-
-//подключение библиотеки opencv
-#include <opencv2/core/core.hpp>
-#include <opencv2/highgui/highgui.hpp>
-#include <opencv2/imgproc/imgproc.hpp>
-
+﻿#include "stdafx.h"
+#include "kinectProcess.h"
+#include "kinectOpenCV.h"
 //#include <opencv2/core/cuda.hpp>
 
-using namespace std;
+kinect devices;
+kinectOpenCV imageEdit;
 
-HANDLE m_pColorStreamHandle;
-HANDLE m_hNextColorFrameEvent;
-
-HANDLE m_pDepthStreamHandle;
-HANDLE m_hNextDepthFrameEvent;
 BYTE* m_depthRGBX;
 
 NUI_IMAGE_FRAME imageFrame;
@@ -46,14 +27,7 @@ int Bmax = 256;
 int RGBmax = 256;
 
 
-// functions
-HRESULT CreateFirstConnected();
-
-void ProcessColor();
-void ProcessDepth();
 void createSettings(bool on);
-
-void frameToGray(cv::Mat originalFrame, cv::Mat outGrayFrame, bool showFrame);
 
 // fps
 int frameCounter = 0;
@@ -66,191 +40,26 @@ vector<vector<cv::Point>> contours;
 cv::Mat imTest(480, 640, CV_8UC4);
 
 HRESULT hr2;
+
+byte image;
+
 int main()
 {
-	HRESULT hr = CreateFirstConnected();
-	 
-	if (S_OK == hr) {
-		m_depthRGBX = new BYTE[640 * 480 * CV_8UC4];
+	vector<byte> image;
+	vector<byte> depth;
+	devices.connectKinect();
 
-		createSettings(true);
+	devices.getColorData(0, &image);
+	devices.getDepthData(0, &depth);
 
-		cv::namedWindow("testEditImage");
-		cv::namedWindow("BlurImage");
-		//cv::createTrackbar("Low", "testEditImage", &Low, 255); //Value (0 - 255)
-		//cv::createTrackbar("High", "testEditImage", &High, 255);
-		//создание окна opencv
-		cv::namedWindow("KinectImage");
-		cv::namedWindow("KinectDepth");
-		while (cv::waitKey(33) != 27) {
-			std::thread th(ProcessColor);
-			std::thread th2(ProcessDepth);
-			th.detach();
-			th2.detach();
-		}
-	}
 	return 0;
 }
 
-HRESULT CreateFirstConnected()
-{
-	INuiColorCameraSettings* settings;
-	INuiSensor* pNuiSensor;
-	HRESULT hr;
-
-	int iSensorCount = 0;
-	hr = NuiGetSensorCount(&iSensorCount);
-	
-	if (FAILED(hr))
-	{
-		return hr;
-	}
-
-	// Look at each Kinect sensor
-	for (int i = 0; i < iSensorCount; ++i)
-	{
-		
-		// Create the sensor so we can check status, if we can't create it, move on to the next
-		hr = NuiCreateSensorByIndex(i, &pNuiSensor);
-
-		if (FAILED(hr))
-		{
-			continue;
-		}
-
-		// Get the status of the sensor, and if connected, then we can initialize it
-		hr = pNuiSensor->NuiStatus();
-		if (S_OK == hr)
-		{
-			m_pNuiSensor = pNuiSensor;
-			break;
-		}
-
-		// This sensor wasn't OK, so release it since we're not using it
-		pNuiSensor->Release();
-	}
-	
-
-	if (NULL != m_pNuiSensor)
-	{
-		
-		// Initialize the Kinect and specify that we'll be using color
-		hr = m_pNuiSensor->NuiInitialize(NUI_INITIALIZE_FLAG_USES_COLOR | NUI_INITIALIZE_FLAG_USES_DEPTH);
-		if (SUCCEEDED(hr))
-		{
-			// Create an event that will be signaled when color data is available
-			m_hNextColorFrameEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-	
-			// Open a color image stream to receive color frames
-			hr = m_pNuiSensor->NuiImageStreamOpen(
-				NUI_IMAGE_TYPE_COLOR,
-				NUI_IMAGE_RESOLUTION_640x480,
-				0,
-				2,
-				m_hNextColorFrameEvent,
-				&m_pColorStreamHandle);
-
-			// Create an event that will be signaled when depth data is available
-			//m_hNextDepthFrameEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-
-			// Open a depth image stream to receive depth frames
-			hr = m_pNuiSensor->NuiImageStreamOpen(
-				NUI_IMAGE_TYPE_DEPTH,
-				NUI_IMAGE_RESOLUTION_640x480,
-				0,
-				2,
-				m_hNextDepthFrameEvent,
-				&m_pDepthStreamHandle);
-		}
-
-
-	}
-
-
-	if (NULL == m_pNuiSensor || FAILED(hr))
-	{
-		std::cout << "No ready Kinect found!" << std::endl;
-		return E_FAIL;
-	}
-
-	return hr;
-}
-
-void ProcessColor()
-{
-	HRESULT hr;
-	NUI_IMAGE_FRAME imageFrame;
-
-	// Attempt to get the color frame
-	hr = m_pNuiSensor->NuiImageStreamGetNextFrame(m_pColorStreamHandle, 0, &imageFrame);
-	if (FAILED(hr))
-	{
-		return;
-	}
-
-	INuiFrameTexture* pTexture = imageFrame.pFrameTexture;
-	NUI_LOCKED_RECT LockedRect;
-
-	// Lock the frame data so the Kinect knows not to modify it while we're reading it
-	pTexture->LockRect(0, &LockedRect, NULL, 0);
-
-		// Преобразование буффера данных с кинекта в Mat
-		cv::Mat texture = cv::Mat(480, 640, CV_8UC4, LockedRect.pBits);
-		//gpuMatFrame.upload(texture);
-		// счётчик кадров
-		frameCounter++;
-		// новое время кадра
-		std::time_t timeNow = std::time(0) - timeBegin;
-
-		if (timeNow - tick >= 1)
-		{
-			tick++;
-			fps = frameCounter;
-			frameCounter = 0;
-		}
-
-		if (fps > 25) {
-			cv::putText(texture, cv::format("FPS=%d", fps), cv::Point(30, 30), cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 255, 0));
-		}
-		else if(fps <= 25 && fps > 15){
-			cv::putText(texture, cv::format("FPS=%d", fps), cv::Point(30, 30), cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 255, 255));
-		}
-		else {
-			cv::putText(texture, cv::format("FPS=%d", fps), cv::Point(30, 30), cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 0, 255));
-		}
-
-
-		cv::Mat blurBin(480, 640, CV_8UC4);
-
-		cv::inRange(texture, cv::Scalar(iHRed, iHGreen, iHBlue), cv::Scalar(iLRed, iLGreen, iLBlue), imTest);
-
-		cv::GaussianBlur(imTest, blurBin, cv::Size(3,3), 0);
-
-		cv::findContours(blurBin, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_NONE);
-		//cv::drawContours(texture, contours, 0, cv::Scalar(255, 0, 255), 2);
-
-		//cout << contours.size() << endl;
-		cv::imshow("KinectImage", texture);
-		cv::imshow("testEditImage", imTest);
-		cv::imshow("BlurImage", blurBin);
-		
-
-
-	
-	// We're done with the texture so unlock it
-	pTexture->UnlockRect(0);
-
-	// Release the frame
-	m_pNuiSensor->NuiImageStreamReleaseFrame(m_pColorStreamHandle, &imageFrame);
-	std::this_thread::sleep_for(std::chrono::milliseconds(1));
-}
-
-cv::Point2f pos;
-
+/*
 void ProcessDepth() {
 	HRESULT hr;
 	NUI_IMAGE_FRAME imageFrame;
-
+	HANDLE m_pDepthStreamHandle;
 	// Попытка получить кадр глубины
 	hr = m_pNuiSensor->NuiImageStreamGetNextFrame(m_pDepthStreamHandle, 0, &imageFrame);
 	if (FAILED(hr))
@@ -305,7 +114,7 @@ void ProcessDepth() {
 			// Рассмотрим вместо этого использование таблицы поиска при написании производственного кода.
 
 			BYTE intensity = static_cast<BYTE>(depth >= minDepth && depth <= maxDepth ? depth % 256 : 0);
-
+*/
 
 			/*if (i > 153270 && i < 153290) {
 
@@ -332,7 +141,7 @@ void ProcessDepth() {
 				*(rgbrun++) = intensity;
 				*/
 
-			int data = depth2 * 768 / maxDepth;	
+/*			int data = depth2 * 768 / maxDepth;	
 
 				*(rgbrun++) = data;
 
@@ -378,6 +187,7 @@ ReleaseFrame:
 	m_pNuiSensor->NuiImageStreamReleaseFrame(m_pDepthStreamHandle, &imageFrame);
 	std::this_thread::sleep_for(std::chrono::milliseconds(1));
 }
+*/
 
 void createSettings(bool on = false) {
 	if (on == true) {
@@ -392,15 +202,6 @@ void createSettings(bool on = false) {
 
 		cv::createTrackbar("BlueH", "Settings", &iHBlue, 255); //Value (0 - 255)
 		cv::createTrackbar("BlueL", "Settings", &iLBlue, 255);
-	}
-}
-
-void frameToGray(cv::Mat originalFrame, cv::Mat outGrayFrame, bool showFrame = false) {
-	//cv::cvtColor(originalFrame, outGrayFrame, cv::COLOR_BGR2GRAY);
-	cv::cvtColor(originalFrame, outGrayFrame, cv::COLOR_BGR2HSV);
-	if (showFrame) {
-		cv::namedWindow("Gray");
-		cv::imshow("Gray", outGrayFrame);
 	}
 }
 

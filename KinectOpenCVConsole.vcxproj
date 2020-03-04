@@ -158,7 +158,15 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="kinectOpenCV.cpp" />
     <ClCompile Include="KinectOpenCVConsole.cpp" />
+    <ClCompile Include="kinectProcess.cpp" />
+    <ClCompile Include="stdafx.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="kinectOpenCV.h" />
+    <ClInclude Include="kinectProcess.h" />
+    <ClInclude Include="stdafx.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
